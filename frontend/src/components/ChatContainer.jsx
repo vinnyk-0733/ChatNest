@@ -7,6 +7,11 @@ import { useAuthStore } from '../store/useAuthStore';
 import { formatMessageTime } from '../lib/utils';
 import { axiosInstance } from '../lib/axios.js';
 
+const reactionEmojis = [
+  "👍", "❤️", "😂", "🔥", "😮", "😢", "👏", "🎉",
+  "💯", "🤔", "😡", "🙌", "💀", "🤩", "😎", "🥰"
+];
+
 const ChatContainer = () => {
   const {
     messages,
@@ -27,6 +32,13 @@ const ChatContainer = () => {
     y: 0,
     messageId: null,
     isOwn: false,
+  });
+
+  const [reactionMenu, setReactionMenu] = useState({
+    visible: false,
+    x: 0,
+    y: 0,
+    messageId: null,
   });
 
   const [editingMessageId, setEditingMessageId] = useState(null);
@@ -60,13 +72,19 @@ const ChatContainer = () => {
 
   useEffect(() => {
     const handleClickOutside = (e) => {
+      if (
+        (contextMenuRef.current && !contextMenuRef.current.contains(e.target)) &&
+        reactionMenu.visible
+      ) {
+        setReactionMenu({ visible: false, x: 0, y: 0, messageId: null });
+      }
       if (contextMenuRef.current && !contextMenuRef.current.contains(e.target)) {
         setContextMenu((prev) => ({ ...prev, visible: false }));
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [reactionMenu]);
 
   const startEditing = (message) => {
     setEditingMessageId(message._id);
@@ -79,7 +97,6 @@ const ChatContainer = () => {
       await axiosInstance.put(`/messages/${id}`, { text: editingText });
       setEditingMessageId(null);
       setEditingText('');
-      // Refetch to ensure updated state if socket missed
       getMessages(selectedUser._id);
     } catch (err) {
       console.error(err);
@@ -89,7 +106,7 @@ const ChatContainer = () => {
   const handleDelete = async (id) => {
     try {
       await axiosInstance.delete(`/messages/${id}`, {
-        data: { userId: authUser._id }
+        data: { userId: authUser._id },
       });
       getMessages(selectedUser._id);
     } catch (err) {
@@ -98,7 +115,7 @@ const ChatContainer = () => {
   };
 
   const handleCopy = async (id) => {
-    const msg = messages.find(m => m._id === id);
+    const msg = messages.find((m) => m._id === id);
     if (msg?.text) {
       try {
         await navigator.clipboard.writeText(msg.text);
@@ -108,6 +125,18 @@ const ChatContainer = () => {
     }
     setContextMenu((prev) => ({ ...prev, visible: false }));
   };
+
+const handleReact = async (messageId, emoji) => {
+  try {
+    await axiosInstance.post(`/messages/${messageId}/react`, { emoji });
+    getMessages(selectedUser._id); // refresh to show updated reactions
+    setReactionMenu({ visible: false, x: 0, y: 0, messageId: null });
+  } catch (err) {
+    console.error("Failed to react:", err);
+  }
+};
+
+
 
   if (isMessageLoading) {
     return (
@@ -160,21 +189,30 @@ const ChatContainer = () => {
                 </time>
               </div>
 
-              <div className="chat-bubble flex flex-col">
-                {message.image && !isDeletedForUser && message.image !== "null" && message.image !== "" && (
-                  <img
-                    src={message.image}
-                    alt="Attachment"
-                    className="sm:max-w-[200px] rounded-md mb-2"
-                    onError={(e) => { e.target.style.display = 'none'; }}
-                  />
-                )}
+              <div className="chat-bubble flex flex-col relative group">
+                {message.image &&
+                  !isDeletedForUser &&
+                  message.image !== 'null' &&
+                  message.image !== '' && (
+                    <img
+                      src={message.image}
+                      alt="Attachment"
+                      className="sm:max-w-[200px] rounded-md mb-2"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
+                    />
+                  )}
 
                 {isDeletedForUser ? (
                   <p className="italic text-gray-500">You deleted this message</p>
                 ) : (
                   <>
-                    {!isEditing && message.text && <p className='whitespace-pre-wrap break break-words'>{message.text}</p>}
+                    {!isEditing && message.text && (
+                      <p className="whitespace-pre-wrap break break-words">
+                        {message.text}
+                      </p>
+                    )}
 
                     {isEditing && (
                       <div className="flex flex-col gap-2">
@@ -208,6 +246,48 @@ const ChatContainer = () => {
                         Edited
                       </span>
                     )}
+
+                    {/* 🟢 Reaction display */}
+                    {message.reactions?.length > 0 && (
+                      <div className="flex gap-1 mt-1 self-start flex-wrap">
+                        {message.reactions.map((r, i) => (
+                          <span
+                            key={i}
+                            className={`text-sm px-1 rounded cursor-default ${
+                              r.userId === authUser._id
+                                ? 'bg-blue-200 dark:bg-blue-600'
+                                : 'bg-gray-200 dark:bg-gray-700'
+                            }`}
+                          >
+                            {r.emoji}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* 🟡 Hover reaction trigger */}
+                    <button
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const menuWidth = Math.min(
+                          window.innerWidth - 20,
+                          reactionEmojis.length * 40
+                        );
+                        const leftPos =
+                          rect.left + menuWidth > window.innerWidth
+                            ? window.innerWidth - menuWidth - 10
+                            : rect.left;
+                        setReactionMenu({
+                          visible: true,
+                          x: leftPos,
+                          y: rect.top + window.scrollY - 40,
+                          messageId: message._id,
+                        });
+                      }}
+                      className="absolute hidden group-hover:block bottom-0 right-0 text-xs text-gray-400 bg-white/30 rounded px-1 hover:bg-white/60"
+                    >
+                      🙂
+                    </button>
                   </>
                 )}
               </div>
@@ -215,6 +295,28 @@ const ChatContainer = () => {
           );
         })}
 
+        {/* 📍 Reaction Menu */}
+        {reactionMenu.visible && (
+          <div
+            className="fixed z-50 flex gap-2 bg-white dark:bg-gray-800 shadow-lg border border-gray-300 dark:border-gray-700 rounded-full p-2 overflow-x-auto max-w-[90vw]"
+            style={{
+              top: `${reactionMenu.y}px`,
+              left: `${reactionMenu.x}px`,
+            }}
+          >
+            {reactionEmojis.map((emoji) => (
+              <span
+                key={emoji}
+                className="cursor-pointer text-xl hover:scale-125 transition-transform flex-shrink-0"
+                onClick={() => handleReact(reactionMenu.messageId, emoji)}
+              >
+                {emoji}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* 📋 Context Menu */}
         {contextMenu.visible && (
           <div
             ref={contextMenuRef}
@@ -235,7 +337,9 @@ const ChatContainer = () => {
               <div
                 className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
                 onClick={() => {
-                  const msg = messages.find(m => m._id === contextMenu.messageId);
+                  const msg = messages.find(
+                    (m) => m._id === contextMenu.messageId
+                  );
                   if (msg) startEditing(msg);
                 }}
               >

@@ -25,7 +25,6 @@ const messageSchema = new mongoose.Schema(
       default: false,
     },
 
-    // NEW: Track editing
     edited: {
       type: Boolean,
       default: false,
@@ -33,10 +32,17 @@ const messageSchema = new mongoose.Schema(
     editedAt: {
       type: Date,
     },
+
+    // ✅ New field for reactions
+    reactions: [
+      {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        emoji: { type: String },
+      },
+    ],
   },
   { timestamps: true }
 );
 
 const Message = mongoose.model("Message", messageSchema);
-
 export default Message;

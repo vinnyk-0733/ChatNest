@@ -1,34 +1,37 @@
-import {Server} from "socket.io"
-import express from "express"
-import http from "http"
+import { Server } from "socket.io";
+import express from "express";
+import http from "http";
 
-const app = express()
-const server  = http.createServer(app)
+const app = express();
+const server = http.createServer(app);
 
-const io = new Server(server,{
-    cors:{
-        origin:["http://localhost:5173"]
-    }
+const io = new Server(server, {
+  cors: { origin: ["http://localhost:5173"] },
 });
 
-export function getReceiverSocketId(userId){
-    return userSocketMap[userId]
+const userSocketMap = {};
+
+export function getReceiverSocketId(userId) {
+  return userSocketMap[userId];
 }
-const userSocketMap = {} 
 
+io.on("connection", (socket) => {
+  console.log("A user connected", socket.id);
+  const userId = socket.handshake.query.userId;
+  if (userId) userSocketMap[userId] = socket.id;
 
-io.on("connection",(socket)=>{
-    console.log("A user connected",socket.id)
-    const userId = socket.handshake.query.userId
-    if(userId) userSocketMap[userId]= socket.id
+  io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
-    io.emit("getOnlineUsers",Object.keys(userSocketMap))
+  socket.on("disconnect", () => {
+    console.log("A user disconnected", socket.id);
+    delete userSocketMap[userId];
+    io.emit("getOnlineUsers", Object.keys(userSocketMap));
+  });
 
-    socket.on("disconnect",()=>{
-        console.log("A user disconnected",socket.id)
-        delete userSocketMap[userId]
-        io.emit("getOnlineUsers",Object.keys(userSocketMap))
-    })
-})
+  // ✅ Handle reaction broadcast
+  socket.on("sendReaction", ({ messageId, emoji, userId }) => {
+    io.emit("receiveReaction", { messageId, emoji, userId });
+  });
+});
 
-export {io,app,server}
+export { io, app, server };

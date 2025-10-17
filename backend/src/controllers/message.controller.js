@@ -8,7 +8,6 @@ export const getUsersForSidebar = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
     const filteredUsers = await User.find({ _id: { $ne: loggedInUserId } }).select("-password");
-
     res.status(200).json(filteredUsers);
   } catch (error) {
     console.log("Error in getUsersForSidebar", error.message);
@@ -28,23 +27,21 @@ export const getMessages = async (req, res) => {
             { senderId: userId, receiverId: otherUserId },
             { senderId: otherUserId, receiverId: userId },
           ],
-        }
-      ]
+        },
+      ],
     }).sort({ createdAt: 1 });
 
-    // Format + Decrypt messages for the current user
-    const formattedMessages = messages.map(msg => {
+    const formattedMessages = messages.map((msg) => {
       const plainObject = msg.toObject();
 
       if (msg.isDeleted || msg.deletedFor.includes(userId)) {
         return {
           ...plainObject,
           text: "deleted message",
-          image: null
+          image: null,
         };
       }
 
-      // 🔑 decrypt only if text exists
       return {
         ...plainObject,
         text: msg.text ? decrypt(msg.text) : "",
@@ -58,75 +55,72 @@ export const getMessages = async (req, res) => {
   }
 };
 
-
 export const sendMessage = async (req, res) => {
   try {
     const { text, image } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
 
+    if (!text && !image) {
+      return res.status(400).json({ message: "Message must contain text or image." });
+    }
+
+    const encryptedText = text ? encrypt(text) : "";
+
     const newMessage = await Message.create({
       senderId,
       receiverId,
-      text: encrypt(text),   // 🔒 encrypt before saving
-      image,
+      text: encryptedText,
+      image: image || null,
     });
 
-    // Decrypt before sending back
     const safeMessage = {
       ...newMessage.toObject(),
-      text: decrypt(newMessage.text),
+      text: decrypt(newMessage.text || ""), // prevent null decrypt
     };
 
     const receiverSocketId = getReceiverSocketId(receiverId);
     const senderSocketId = getReceiverSocketId(senderId);
 
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("newMessage", safeMessage);
-    }
-    if (senderSocketId) {
-      io.to(senderSocketId).emit("newMessage", safeMessage);
-    }
+    // Broadcast message to both sender and receiver
+    if (receiverSocketId) io.to(receiverSocketId).emit("newMessage", safeMessage);
+    if (senderSocketId) io.to(senderSocketId).emit("newMessage", safeMessage);
 
     res.status(201).json(safeMessage);
   } catch (err) {
+    console.error("Send message error:", err);
     res.status(500).json({ message: "Error sending message", error: err.message });
   }
 };
+
 
 export const deleteMessage = async (req, res) => {
   try {
     const messageId = req.params.id;
     const currentUserId = req.user._id.toString();
 
-    // Find the message
     const message = await Message.findById(messageId);
-    if (!message) {
-      return res.status(404).json({ error: "Message not found" });
-    }
+    if (!message) return res.status(404).json({ error: "Message not found" });
 
-    // Push current user's ID to deletedFor if not already present
     if (!message.deletedFor.includes(currentUserId)) {
       message.deletedFor.push(currentUserId);
     }
 
-    // If both sender and receiver deleted, mark as globally deleted
     const senderId = message.senderId.toString();
     const receiverId = message.receiverId.toString();
+
     if (message.deletedFor.includes(senderId) && message.deletedFor.includes(receiverId)) {
       message.isDeleted = true;
     }
 
     await message.save();
 
-    // Prepare message for response (only for current user)
     const responseMessage = {
       ...message.toObject(),
       text: "deleted message",
-      image: null
+      image: null,
     };
 
-    // Emit socket events
     const senderSocketId = getReceiverSocketId(senderId);
     const receiverSocketId = getReceiverSocketId(receiverId);
 
@@ -140,13 +134,9 @@ export const deleteMessage = async (req, res) => {
   }
 };
 
-
-
 export const editMessage = async (req, res) => {
   try {
     const { text } = req.body;
-
-    // 🔒 Encrypt new text before saving
     const encryptedText = encrypt(text);
 
     const updatedMessage = await Message.findByIdAndUpdate(
@@ -155,25 +145,18 @@ export const editMessage = async (req, res) => {
       { new: true }
     );
 
-    if (!updatedMessage) {
-      return res.status(404).json({ error: "Message not found" });
-    }
+    if (!updatedMessage) return res.status(404).json({ error: "Message not found" });
 
-    // 🔑 Decrypt before sending back
     const decryptedMessage = {
       ...updatedMessage.toObject(),
-      text: text, // return original plain text to client
+      text: text,
     };
 
     const senderSocketId = getReceiverSocketId(updatedMessage.senderId.toString());
     const receiverSocketId = getReceiverSocketId(updatedMessage.receiverId.toString());
 
-    if (senderSocketId) {
-      io.to(senderSocketId).emit("messageEdited", decryptedMessage);
-    }
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("messageEdited", decryptedMessage);
-    }
+    if (senderSocketId) io.to(senderSocketId).emit("messageEdited", decryptedMessage);
+    if (receiverSocketId) io.to(receiverSocketId).emit("messageEdited", decryptedMessage);
 
     res.status(200).json(decryptedMessage);
   } catch (error) {
@@ -181,3 +164,41 @@ export const editMessage = async (req, res) => {
     res.status(500).json({ error: "Failed to edit message" });
   }
 };
+
+// ✅ New: Add or remove reactions
+// POST /messages/:id/react
+export const reactToMessage = async (req, res) => {
+  try {
+    const { id } = req.params; // messageId
+    const { emoji } = req.body;
+    const userId = req.user._id;
+
+    const message = await Message.findById(id);
+    if (!message) return res.status(404).json({ message: "Message not found" });
+
+    // Check if user already reacted
+    const existingReactionIndex = message.reactions.findIndex(
+      (r) => r.userId.toString() === userId.toString()
+    );
+
+    if (existingReactionIndex > -1) {
+      // Same emoji clicked → remove reaction
+      if (message.reactions[existingReactionIndex].emoji === emoji) {
+        message.reactions.splice(existingReactionIndex, 1);
+      } else {
+        // Different emoji → replace it
+        message.reactions[existingReactionIndex].emoji = emoji;
+      }
+    } else {
+      // No existing reaction → add new
+      message.reactions.push({ userId, emoji });
+    }
+
+    await message.save();
+    res.status(200).json(message);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error reacting to message", error: err.message });
+  }
+};
+
