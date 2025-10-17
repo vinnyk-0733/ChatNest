@@ -126,15 +126,15 @@ const ChatContainer = () => {
     setContextMenu((prev) => ({ ...prev, visible: false }));
   };
 
-const handleReact = async (messageId, emoji) => {
-  try {
-    await axiosInstance.post(`/messages/${messageId}/react`, { emoji });
-    getMessages(selectedUser._id); // refresh to show updated reactions
-    setReactionMenu({ visible: false, x: 0, y: 0, messageId: null });
-  } catch (err) {
-    console.error("Failed to react:", err);
-  }
-};
+  const handleReact = async (messageId, emoji) => {
+    try {
+      await axiosInstance.post(`/messages/${messageId}/react`, { emoji });
+      getMessages(selectedUser._id); // refresh to show updated reactions
+      setReactionMenu({ visible: false, x: 0, y: 0, messageId: null });
+    } catch (err) {
+      console.error("Failed to react:", err);
+    }
+  };
 
 
 
@@ -190,19 +190,55 @@ const handleReact = async (messageId, emoji) => {
               </div>
 
               <div className="chat-bubble flex flex-col relative group">
-                {message.image &&
-                  !isDeletedForUser &&
-                  message.image !== 'null' &&
-                  message.image !== '' && (
-                    <img
-                      src={message.image}
-                      alt="Attachment"
-                      className="sm:max-w-[200px] rounded-md mb-2"
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                      }}
-                    />
-                  )}
+                {message.fileUrl && !isDeletedForUser && (
+                  <>
+                    {/* 🖼️ Image preview */}
+                    {message.fileType === "image" && (
+                      <img
+                        src={message.fileUrl}
+                        alt={message.fileName || "Image"}
+                        className="sm:max-w-[200px] rounded-lg mb-2 border border-gray-300 dark:border-gray-600 shadow-sm"
+                      />
+                    )}
+
+                    {/* 🎥 Video preview */}
+                    {message.fileType === "video" && (
+                      <video
+                        src={message.fileUrl}
+                        controls
+                        className="sm:max-w-[250px] rounded-lg mb-2 border border-gray-300 dark:border-gray-600 shadow-sm"
+                      />
+                    )}
+
+                    {/* 📄 PDF download link */}
+                    {/* 📄 PDF download link */}
+                    {message.fileType === "pdf" && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <a
+                          href={`${message.fileUrl}?fl_attachment=${encodeURIComponent(message.fileName)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          download={message.fileName}
+                          className="flex items-center text-blue-500 underline hover:text-blue-600"
+                        >
+                          📄 {message.fileName || "Download PDF"}
+                        </a>
+                        <a
+                          href={`${message.fileUrl}?fl_attachment=${encodeURIComponent(message.fileName)}`}
+                          download={message.fileName}
+                          className="text-sm text-gray-500 hover:text-gray-700"
+                          title="Download file"
+                        >
+                          ⬇️
+                        </a>
+                      </div>
+                    )}
+
+
+                  </>
+                )}
+
+
 
                 {isDeletedForUser ? (
                   <p className="italic text-gray-500">You deleted this message</p>
@@ -253,11 +289,10 @@ const handleReact = async (messageId, emoji) => {
                         {message.reactions.map((r, i) => (
                           <span
                             key={i}
-                            className={`text-sm px-1 rounded cursor-default ${
-                              r.userId === authUser._id
-                                ? 'bg-blue-200 dark:bg-blue-600'
-                                : 'bg-gray-200 dark:bg-gray-700'
-                            }`}
+                            className={`text-sm px-1 rounded cursor-default ${r.userId === authUser._id
+                              ? 'bg-blue-200 dark:bg-blue-600'
+                              : 'bg-gray-200 dark:bg-gray-700'
+                              }`}
                           >
                             {r.emoji}
                           </span>

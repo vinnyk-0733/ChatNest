@@ -4,17 +4,19 @@ import Message from "../models/message.model.js";
 import User from "../models/user.model.js";
 import { encrypt, decrypt } from "../utils/encryption.js";
 
+// 🧩 Get all users except logged-in one
 export const getUsersForSidebar = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
     const filteredUsers = await User.find({ _id: { $ne: loggedInUserId } }).select("-password");
     res.status(200).json(filteredUsers);
   } catch (error) {
-    console.log("Error in getUsersForSidebar", error.message);
+    console.error("Error in getUsersForSidebar:", error.message);
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
 
+// 🧩 Get all messages between logged-in user and another user
 export const getMessages = async (req, res) => {
   const userId = req.user._id.toString();
   const otherUserId = req.params.id;
@@ -55,14 +57,37 @@ export const getMessages = async (req, res) => {
   }
 };
 
+// 🧩 Send message (text, image, video, or PDF)
 export const sendMessage = async (req, res) => {
   try {
-    const { text, image } = req.body;
+    const { text, file } = req.body; // file = base64 or null
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
 
-    if (!text && !image) {
-      return res.status(400).json({ message: "Message must contain text or image." });
+    if (!text && !file) {
+      return res.status(400).json({ message: "Message must contain text or file." });
+    }
+
+    let uploadedFileUrl = null;
+    let uploadedFileType = null;
+    let uploadedFileName = null;
+
+    // ✅ Upload file to Cloudinary if provided
+    if (file) {
+      const uploadResponse = await cloudinary.uploader.upload(file, {
+        resource_type: "auto",
+        use_filename: true, // keep original name
+        unique_filename: false, // don't rename randomly
+      });
+
+      uploadedFileUrl = uploadResponse.secure_url;
+      uploadedFileName =
+        uploadResponse.original_filename +
+        (uploadResponse.format ? `.${uploadResponse.format}` : "");
+      const mimeType = uploadResponse.resource_type;
+      if (mimeType === "image") uploadedFileType = "image";
+      else if (mimeType === "video") uploadedFileType = "video";
+      else uploadedFileType = "pdf";
     }
 
     const encryptedText = text ? encrypt(text) : "";
@@ -71,18 +96,20 @@ export const sendMessage = async (req, res) => {
       senderId,
       receiverId,
       text: encryptedText,
-      image: image || null,
+      fileUrl: uploadedFileUrl,
+      fileType: uploadedFileType,
+      fileName: uploadedFileName,
     });
 
     const safeMessage = {
       ...newMessage.toObject(),
-      text: decrypt(newMessage.text || ""), // prevent null decrypt
+      text: decrypt(newMessage.text || ""),
     };
 
+    // 🔁 Real-time socket emit to both users
     const receiverSocketId = getReceiverSocketId(receiverId);
     const senderSocketId = getReceiverSocketId(senderId);
 
-    // Broadcast message to both sender and receiver
     if (receiverSocketId) io.to(receiverSocketId).emit("newMessage", safeMessage);
     if (senderSocketId) io.to(senderSocketId).emit("newMessage", safeMessage);
 
@@ -93,7 +120,7 @@ export const sendMessage = async (req, res) => {
   }
 };
 
-
+// 🧩 Delete message
 export const deleteMessage = async (req, res) => {
   try {
     const messageId = req.params.id;
@@ -134,6 +161,7 @@ export const deleteMessage = async (req, res) => {
   }
 };
 
+// 🧩 Edit message
 export const editMessage = async (req, res) => {
   try {
     const { text } = req.body;
@@ -165,8 +193,7 @@ export const editMessage = async (req, res) => {
   }
 };
 
-// ✅ New: Add or remove reactions
-// POST /messages/:id/react
+// 🧩 Add or remove reactions
 export const reactToMessage = async (req, res) => {
   try {
     const { id } = req.params; // messageId
@@ -197,8 +224,7 @@ export const reactToMessage = async (req, res) => {
     await message.save();
     res.status(200).json(message);
   } catch (err) {
-    console.error(err);
+    console.error("React to message error:", err);
     res.status(500).json({ message: "Error reacting to message", error: err.message });
   }
 };
-
