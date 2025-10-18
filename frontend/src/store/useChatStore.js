@@ -5,6 +5,7 @@ import { useAuthStore } from "./useAuthStore";
 
 export const useChatStore = create((set, get) => ({
   messages: [],
+  filteredMessages: [],  // ✅ add this
   users: [],
   selectedUser: null,
   isUsersLoading: false,
@@ -34,14 +35,14 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  setMessages: (msgs) => set({ messages: msgs }),
+  setFilteredMessages: (msgs) => set({ filteredMessages: msgs }), // ✅ add this
+
   sendMessage: async (messageData) => {
     const { selectedUser } = get();
     try {
-      await axiosInstance.post(
-        `/messages/send/${selectedUser._id}`,
-        messageData
-      );
-      // set({ messages: [...messages, res.data] });
+      await axiosInstance.post(`/messages/send/${selectedUser._id}`, messageData);
+      // optionally update messages here
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to send message");
     }
@@ -53,36 +54,21 @@ export const useChatStore = create((set, get) => ({
 
     const socket = useAuthStore.getState().socket;
 
-    // --- Handle new messages ---
     socket.on("newMessage", (newMessage) => {
-      const isRelevantMessage =
-        newMessage.senderId === selectedUser._id ||
-        newMessage.receiverId === selectedUser._id;
-
-      if (!isRelevantMessage) return;
-
+      const isRelevant = newMessage.senderId === selectedUser._id || newMessage.receiverId === selectedUser._id;
+      if (!isRelevant) return;
       set({ messages: [...get().messages, newMessage] });
     });
 
-    // --- Handle message edits ---
     socket.on("messageEdited", (updatedMessage) => {
-      const isRelevantMessage =
-        updatedMessage.senderId === selectedUser._id ||
-        updatedMessage.receiverId === selectedUser._id;
-
-      if (!isRelevantMessage) return;
-
+      const isRelevant = updatedMessage.senderId === selectedUser._id || updatedMessage.receiverId === selectedUser._id;
+      if (!isRelevant) return;
       set({
-        messages: get().messages.map((m) =>
+        messages: get().messages.map(m =>
           m._id === updatedMessage._id
-            ? {
-              ...m,
-              text: updatedMessage.text,
-              edited: updatedMessage.edited ?? true, // fallback if backend didn't send
-              editedAt: updatedMessage.editedAt || new Date().toISOString()
-            }
+            ? { ...m, text: updatedMessage.text, edited: updatedMessage.edited ?? true, editedAt: updatedMessage.editedAt || new Date().toISOString() }
             : m
-        ),
+        )
       });
     });
   },
@@ -94,4 +80,7 @@ export const useChatStore = create((set, get) => ({
   },
 
   setSelectedUser: (selectedUser) => set({ selectedUser }),
+  
+  clearMessages: () => set({ messages: [], filteredMessages: [] }),
+
 }));

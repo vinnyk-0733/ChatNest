@@ -228,3 +228,38 @@ export const reactToMessage = async (req, res) => {
     res.status(500).json({ message: "Error reacting to message", error: err.message });
   }
 };
+
+// 🧩 Search messages between logged-in user and another user
+export const searchMessages = async (req, res) => {
+  const userId = req.user._id.toString();
+  const otherUserId = req.params.id; // ✅ FIX: use route param instead of query
+  const { query } = req.query;
+
+  if (!query) return res.status(400).json({ message: "Query is required" });
+
+  try {
+    // ✅ Fetch messages between two users
+    const messages = await Message.find({
+      $or: [
+        { senderId: userId, receiverId: otherUserId },
+        { senderId: otherUserId, receiverId: userId },
+      ],
+    }).sort({ createdAt: 1 });
+
+    // ✅ Decrypt and filter locally
+    const filteredMessages = messages
+      .map((msg) => ({
+        ...msg.toObject(),
+        text: msg.text ? decrypt(msg.text) : "",
+      }))
+      .filter((msg) =>
+        msg.text.toLowerCase().includes(query.toLowerCase())
+      );
+
+    res.status(200).json(filteredMessages);
+  } catch (err) {
+    console.error("Search messages error:", err);
+    res.status(500).json({ message: "Failed to search messages" });
+  }
+};
+

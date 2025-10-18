@@ -5,7 +5,8 @@ import {
   sendMessage,
   deleteMessage,
   editMessage,
-  reactToMessage, // ✅ new controller for reactions
+  reactToMessage, 
+  searchMessages// ✅ new controller for reactions
 } from "../controllers/message.controller.js";
 import { protectRoute } from "../middleware/auth.middleware.js";
 
@@ -28,5 +29,9 @@ router.delete("/:id", protectRoute, deleteMessage);
 
 // ✅ Add or remove a reaction (👍❤️😂🔥)
 router.post("/:id/react", protectRoute, reactToMessage);
+
+// ✅ Search messages between logged-in user and another user
+router.get("/search/:id", protectRoute, searchMessages); 
+
 
 export default router;

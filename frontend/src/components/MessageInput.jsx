@@ -107,6 +107,7 @@ const MessageInput = () => {
           value={text}
           onChange={(e) => setText(e.target.value)}
           rows={1}
+          autoComplete="off"
         />
         <input
           type="file"
