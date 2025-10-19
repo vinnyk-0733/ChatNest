@@ -108,14 +108,20 @@ const MessageInput = () => {
           onChange={(e) => setText(e.target.value)}
           rows={1}
           autoComplete="off"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault(); // prevent newline
+              handleSendMessage(e); // send message
+            }
+          }}
         />
-        <input
-          type="file"
-          accept="image/*,video/*,application/pdf"
-          ref={fileInputRef}
-          className="hidden"
-          onChange={handleFileChange}
-        />
+              < input
+            type = "file"
+            accept = "image/*,video/*,application/pdf"
+            ref = { fileInputRef }
+            className = "hidden"
+            onChange = { handleFileChange }
+              />
         <button type="button" onClick={() => fileInputRef.current?.click()} className="btn btn-circle">
           <Image size={20} />
         </button>

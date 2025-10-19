@@ -204,14 +204,14 @@ const ChatContainer = () => {
                 {/* Reaction popup, appears above bubble when button clicked */}
                 {openReactionFor === message._id && (
                   <div
-                    className="reaction-popup absolute left-1/2 transform -translate-x-1/2 z-50 p-4 rounded-full shadow-lg flex flex-wrap gap-2 items-center bg-white dark:bg-gray-800 border border-base-200"
-                    style={{ bottom: '100%', marginBottom: '14px', maxWidth: '180px',left: '100%',marginLeft: '10px' }}
+                    className="reaction-popup absolute bottom-0 left-full ml-2 z-50 p-2 rounded-full shadow-lg flex flex-row flex-wrap gap-2 items-center bg-white dark:bg-gray-800 border border-base-200"
+                    style={{ maxWidth: '180px' }}
                     onClick={(e) => e.stopPropagation()}
                   >
                     {REACTIONS.map((emoji) => (
                       <button
                         key={emoji}
-                        className="text-lg leading-none -p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                        className="text-lg leading-none p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
                         onClick={() => {
                           handleReact(message._id, emoji);
                           setOpenReactionFor(null);
@@ -224,6 +224,7 @@ const ChatContainer = () => {
                     ))}
                   </div>
                 )}
+
 
 
 
