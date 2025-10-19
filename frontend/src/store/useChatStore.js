@@ -5,7 +5,7 @@ import { useAuthStore } from "./useAuthStore";
 
 export const useChatStore = create((set, get) => ({
   messages: [],
-  filteredMessages: [],  // ✅ add this
+  filteredMessages: [],
   users: [],
   selectedUser: null,
   isUsersLoading: false,
@@ -36,7 +36,7 @@ export const useChatStore = create((set, get) => ({
   },
 
   setMessages: (msgs) => set({ messages: msgs }),
-  setFilteredMessages: (msgs) => set({ filteredMessages: msgs }), // ✅ add this
+  setFilteredMessages: (msgs) => set({ filteredMessages: msgs }),
 
   sendMessage: async (messageData) => {
     const { selectedUser } = get();
@@ -64,11 +64,22 @@ export const useChatStore = create((set, get) => ({
       const isRelevant = updatedMessage.senderId === selectedUser._id || updatedMessage.receiverId === selectedUser._id;
       if (!isRelevant) return;
       set({
-        messages: get().messages.map(m =>
+        messages: get().messages.map((m) =>
           m._id === updatedMessage._id
             ? { ...m, text: updatedMessage.text, edited: updatedMessage.edited ?? true, editedAt: updatedMessage.editedAt || new Date().toISOString() }
             : m
-        )
+        ),
+      });
+    });
+
+    // ✅ handle reactions
+    socket.on("messageReaction", (updatedMessage) => {
+      const isRelevant = updatedMessage.senderId === selectedUser._id || updatedMessage.receiverId === selectedUser._id;
+      if (!isRelevant) return;
+      set({
+        messages: get().messages.map((m) =>
+          m._id === updatedMessage._id ? { ...m, reactions: updatedMessage.reactions || [] } : m
+        ),
       });
     });
   },
@@ -77,10 +88,10 @@ export const useChatStore = create((set, get) => ({
     const socket = useAuthStore.getState().socket;
     socket.off("newMessage");
     socket.off("messageEdited");
+    socket.off("messageReaction");
   },
 
   setSelectedUser: (selectedUser) => set({ selectedUser }),
-  
-  clearMessages: () => set({ messages: [], filteredMessages: [] }),
 
+  clearMessages: () => set({ messages: [], filteredMessages: [] }),
 }));

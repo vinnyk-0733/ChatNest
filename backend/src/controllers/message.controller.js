@@ -22,6 +22,7 @@ export const getMessages = async (req, res) => {
   const otherUserId = req.params.id;
 
   try {
+    // Populate reactions.userId (name + profilepic) so client can show who reacted
     const messages = await Message.find({
       $and: [
         {
@@ -31,7 +32,9 @@ export const getMessages = async (req, res) => {
           ],
         },
       ],
-    }).sort({ createdAt: 1 });
+    })
+      .sort({ createdAt: 1 })
+      .populate("reactions.userId", "name profilepic");
 
     const formattedMessages = messages.map((msg) => {
       const plainObject = msg.toObject();
@@ -41,6 +44,7 @@ export const getMessages = async (req, res) => {
           ...plainObject,
           text: "deleted message",
           image: null,
+          // keep reactions visible even for deleted messages if you prefer (optional)
         };
       }
 
@@ -56,6 +60,7 @@ export const getMessages = async (req, res) => {
     res.status(500).json({ message: "Failed to load messages" });
   }
 };
+
 
 // 🧩 Send message (text, image, video, or PDF)
 export const sendMessage = async (req, res) => {
@@ -193,42 +198,6 @@ export const editMessage = async (req, res) => {
   }
 };
 
-// 🧩 Add or remove reactions
-export const reactToMessage = async (req, res) => {
-  try {
-    const { id } = req.params; // messageId
-    const { emoji } = req.body;
-    const userId = req.user._id;
-
-    const message = await Message.findById(id);
-    if (!message) return res.status(404).json({ message: "Message not found" });
-
-    // Check if user already reacted
-    const existingReactionIndex = message.reactions.findIndex(
-      (r) => r.userId.toString() === userId.toString()
-    );
-
-    if (existingReactionIndex > -1) {
-      // Same emoji clicked → remove reaction
-      if (message.reactions[existingReactionIndex].emoji === emoji) {
-        message.reactions.splice(existingReactionIndex, 1);
-      } else {
-        // Different emoji → replace it
-        message.reactions[existingReactionIndex].emoji = emoji;
-      }
-    } else {
-      // No existing reaction → add new
-      message.reactions.push({ userId, emoji });
-    }
-
-    await message.save();
-    res.status(200).json(message);
-  } catch (err) {
-    console.error("React to message error:", err);
-    res.status(500).json({ message: "Error reacting to message", error: err.message });
-  }
-};
-
 // 🧩 Search messages between logged-in user and another user
 export const searchMessages = async (req, res) => {
   const userId = req.user._id.toString();
@@ -263,3 +232,66 @@ export const searchMessages = async (req, res) => {
   }
 };
 
+export const reactToMessage = async (req, res) => {
+  try {
+    const messageId = req.params.id;
+    const emoji = req.body.emoji;
+    const userId = req.user._id.toString();
+
+    if (!emoji) return res.status(400).json({ error: "Emoji is required" });
+
+    const message = await Message.findById(messageId);
+    if (!message) return res.status(404).json({ error: "Message not found" });
+
+    // Ensure reactions array exists
+    if (!Array.isArray(message.reactions)) message.reactions = [];
+
+    // Find existing reaction by this user
+    const existingIndex = message.reactions.findIndex(
+      (r) => r.userId?.toString() === userId
+    );
+
+    if (existingIndex !== -1) {
+      const existingEmoji = message.reactions[existingIndex].emoji;
+      if (existingEmoji === emoji) {
+        // Toggle off (remove)
+        message.reactions.splice(existingIndex, 1);
+      } else {
+        // Change reaction to new emoji
+        message.reactions[existingIndex].emoji = emoji;
+      }
+    } else {
+      // Add new reaction
+      message.reactions.push({ userId: userId, emoji });
+    }
+
+    await message.save();
+
+    // Re-fetch the message and populate reaction user info for the client
+    const updatedMessage = await Message.findById(messageId).populate(
+      "reactions.userId",
+      "name profilepic"
+    );
+
+    const safeMessage = {
+      ...updatedMessage.toObject(),
+      text: updatedMessage.text ? decrypt(updatedMessage.text) : "",
+    };
+
+    // Emit to sender and receiver (so only the two participants receive update)
+    const senderId = updatedMessage.senderId.toString();
+    const receiverId = updatedMessage.receiverId.toString();
+
+    const senderSocketId = getReceiverSocketId(senderId);
+    const receiverSocketId = getReceiverSocketId(receiverId);
+
+    if (senderSocketId) io.to(senderSocketId).emit("messageReaction", safeMessage);
+    if (receiverSocketId) io.to(receiverSocketId).emit("messageReaction", safeMessage);
+
+    // Respond to API caller too
+    res.status(200).json({ message: "Reaction updated", data: safeMessage });
+  } catch (error) {
+    console.error("reactToMessage error:", error);
+    res.status(500).json({ error: "Failed to react to message" });
+  }
+};

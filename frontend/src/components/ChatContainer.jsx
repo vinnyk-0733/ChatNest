@@ -7,17 +7,14 @@ import { useAuthStore } from '../store/useAuthStore';
 import { formatMessageTime } from '../lib/utils';
 import { axiosInstance } from '../lib/axios.js';
 
-const reactionEmojis = [
-  "👍", "❤️", "😂", "🔥", "😮", "😢", "👏", "🎉",
-  "💯", "🤔", "😡", "🙌", "💀", "🤩", "😎", "🥰"
-];
+const REACTIONS = ['👍', '❤️', '😊', '😆', '😮', '😢'];
 
 const ChatContainer = () => {
   const {
     messages,
     filteredMessages,
     getMessages,
-    isMessageLoading,
+    isMessagesLoading,
     selectedUser,
     subscribeToMessages,
     unsubscribeFromMessages,
@@ -29,19 +26,18 @@ const ChatContainer = () => {
   const contextMenuRef = useRef(null);
 
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, messageId: null, isOwn: false });
-  const [reactionMenu, setReactionMenu] = useState({ visible: false, x: 0, y: 0, messageId: null });
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editingText, setEditingText] = useState('');
+  const [openReactionFor, setOpenReactionFor] = useState(null);
 
-useEffect(() => {
-  if (selectedUser?._id) {
-    clearMessages(); // ✅ Clear old chat before loading new
-    getMessages(selectedUser._id);
-    subscribeToMessages();
-    return () => unsubscribeFromMessages();
-  }
-}, [selectedUser?._id]);
-
+  useEffect(() => {
+    if (selectedUser?._id) {
+      clearMessages();
+      getMessages(selectedUser._id);
+      subscribeToMessages();
+      return () => unsubscribeFromMessages();
+    }
+  }, [selectedUser?._id]);
 
   useEffect(() => {
     if (messageEndRef.current && (filteredMessages.length || messages.length)) {
@@ -66,13 +62,13 @@ useEffect(() => {
       if (contextMenuRef.current && !contextMenuRef.current.contains(e.target)) {
         setContextMenu(prev => ({ ...prev, visible: false }));
       }
-      if (reactionMenu.visible) {
-        setReactionMenu({ visible: false, x: 0, y: 0, messageId: null });
+      if (!e.target.closest('.reaction-popup') && !e.target.closest('.reaction-button')) {
+        setOpenReactionFor(null);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [reactionMenu]);
+  }, []);
 
   const startEditing = (message) => {
     setEditingMessageId(message._id);
@@ -112,19 +108,37 @@ useEffect(() => {
     setContextMenu(prev => ({ ...prev, visible: false }));
   };
 
+  const displayMessages = filteredMessages.length > 0 ? filteredMessages : messages;
+
+  // Reaction API
   const handleReact = async (messageId, emoji) => {
     try {
       await axiosInstance.post(`/messages/${messageId}/react`, { emoji });
-      getMessages(selectedUser._id);
-      setReactionMenu({ visible: false, x: 0, y: 0, messageId: null });
+      setOpenReactionFor(null); // close popup
     } catch (err) {
-      console.error("Failed to react:", err);
+      console.error("React failed", err);
     }
   };
 
-  const displayMessages = filteredMessages.length > 0 ? filteredMessages : messages;
+  const computeReactionInfo = (reactions = []) => {
+    const counts = {};
+    let userReaction = null;
+    reactions.forEach((r) => {
+      counts[r.emoji] = (counts[r.emoji] || 0) + 1;
+      const uid = typeof r.userId === 'string' ? r.userId : r.userId?._id || r.userId.toString();
+      if (uid === (authUser._id?.toString())) userReaction = r.emoji;
+    });
+    return { counts, userReaction };
+  };
 
-  if (isMessageLoading) {
+  const buildReactionTooltip = (reactions = [], emoji) => {
+    const reactors = reactions
+      .filter((r) => r.emoji === emoji)
+      .map((r) => r.userId?.name || r.userId?._id || "Unknown");
+    return reactors.join(", ");
+  };
+
+  if (isMessagesLoading) {
     return (
       <div className="flex-1 flex flex-col overflow-auto">
         <ChatHeader />
@@ -146,6 +160,9 @@ useEffect(() => {
           const showEditedLabel = message.edited && !isDeletedForUser;
           const tooltipTime = message.editedAt || message.updatedAt || message.createdAt;
 
+          const reactionsArray = message.reactions || [];
+          const { counts, userReaction } = computeReactionInfo(reactionsArray);
+
           return (
             <div
               key={message._id}
@@ -163,90 +180,128 @@ useEffect(() => {
               </div>
 
               <div className="chat-header mb-1">
-                <time className="text-xs opacity-50 ml-1">
-                  {formatMessageTime(message.createdAt)}
-                </time>
+                <time className="text-xs opacity-50 ml-1">{formatMessageTime(message.createdAt)}</time>
               </div>
 
-              <div className="chat-bubble flex flex-col relative group">
+              <div
+                className={`chat-bubble flex flex-col relative group transition-all duration-200 ${isOwn ? "bg-primary text-primary-content" : "bg-base-200 text-base-content"}`}
+              >
+                {/* Reaction button */}
+                {/* Small reaction button at bottom-right corner */}
+                {/* Small reaction button at bottom-right, visible on hover */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenReactionFor(openReactionFor === message._id ? null : message._id);
+                  }}
+                  className="reaction-button absolute -bottom-2 -right-3 hidden group-hover:inline-flex items-center justify-center w-6 h-6 rounded-full shadow-sm bg-white dark:bg-gray-800 border border-base-200 text-sm"
+                  title="React"
+                >
+                  🙂
+                </button>
+
+                {/* Reaction popup, appears above bubble when button clicked */}
+                {openReactionFor === message._id && (
+                  <div
+                    className="reaction-popup absolute left-1/2 transform -translate-x-1/2 z-50 p-4 rounded-full shadow-lg flex flex-wrap gap-2 items-center bg-white dark:bg-gray-800 border border-base-200"
+                    style={{ bottom: '100%', marginBottom: '14px', maxWidth: '180px',left: '100%',marginLeft: '10px' }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {REACTIONS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        className="text-lg leading-none -p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                        onClick={() => {
+                          handleReact(message._id, emoji);
+                          setOpenReactionFor(null);
+                        }}
+                        type="button"
+                        title={`React ${emoji}`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+
+
+                {/* Media messages */}
                 {message.fileUrl && !isDeletedForUser && (
                   <>
-                    {message.fileType === "image" && <img src={message.fileUrl} alt={message.fileName || "Image"} className="sm:max-w-[200px] rounded-lg mb-2 border border-gray-300 dark:border-gray-600 shadow-sm" />}
-                    {message.fileType === "video" && <video src={message.fileUrl} controls className="sm:max-w-[250px] rounded-lg mb-2 border border-gray-300 dark:border-gray-600 shadow-sm" />}
+                    {message.fileType === "image" && (
+                      <img src={message.fileUrl} alt={message.fileName || "Image"} className="sm:max-w-[200px] rounded-lg mb-2 border border-base-300 shadow-sm transition-colors duration-200" />
+                    )}
+                    {message.fileType === "video" && (
+                      <video src={message.fileUrl} controls className="sm:max-w-[250px] rounded-lg mb-2 border border-base-300 shadow-sm transition-colors duration-200" />
+                    )}
                     {message.fileType === "pdf" && (
                       <div className="mt-2 flex items-center gap-2">
-                        <a href={`${message.fileUrl}?fl_attachment=${encodeURIComponent(message.fileName)}`} target="_blank" rel="noopener noreferrer" download={message.fileName} className="flex items-center text-blue-500 underline hover:text-blue-600">
+                        <a href={`${message.fileUrl}?fl_attachment=${encodeURIComponent(message.fileName)}`} target="_blank" rel="noopener noreferrer" className="flex items-center underline hover:no-underline text-info">
                           📄 {message.fileName || "Download PDF"}
                         </a>
-                        <a href={`${message.fileUrl}?fl_attachment=${encodeURIComponent(message.fileName)}`} download={message.fileName} className="text-sm text-gray-500 hover:text-gray-700" title="Download file">
-                          ⬇️
-                        </a>
+                        <a href={`${message.fileUrl}?fl_attachment=${encodeURIComponent(message.fileName)}`} download={message.fileName} className="text-sm text-info/70 hover:text-info" title="Download file">⬇️</a>
                       </div>
                     )}
                   </>
                 )}
 
                 {isDeletedForUser ? (
-                  <p className="italic text-gray-500">You deleted this message</p>
+                  <p className="italic text-base-content/50">You deleted this message</p>
                 ) : (
                   <>
                     {!isEditing && message.text && (
-                      <p
-                        className="whitespace-pre-wrap break break-words"
-                        dangerouslySetInnerHTML={{
-                          __html: message.highlightedText || message.text
-                        }}
-                      />
+                      <p className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={{ __html: message.highlightedText || message.text }} />
                     )}
 
                     {isEditing && (
                       <div className="flex flex-col gap-2">
-                        <textarea className="border rounded p-2 w-full" value={editingText} onChange={(e) => setEditingText(e.target.value)} />
+                        <textarea
+                          className="border rounded p-2 w-full text-base-content bg-base-100"
+                          value={editingText}
+                          onChange={(e) => setEditingText(e.target.value)}
+                        />
                         <div className="flex gap-2">
-                          <button className="bg-blue-500 text-white px-3 py-1 rounded" onClick={() => handleSaveEdit(message._id)}>Save</button>
-                          <button className="bg-red-600 px-3 py-1 rounded" onClick={() => setEditingMessageId(null)}>Cancel</button>
+                          <button className="btn btn-primary btn-sm" onClick={() => handleSaveEdit(message._id)}>Save</button>
+                          <button className="btn btn-error btn-sm" onClick={() => setEditingMessageId(null)}>Cancel</button>
                         </div>
                       </div>
                     )}
 
                     {showEditedLabel && !isEditing && (
-                      <span className="text-xs text-gray-400 mt-1 self-end" title={`Last edited: ${formatMessageTime(tooltipTime)}`}>Edited</span>
+                      <span className="text-xs text-base-content/50 mt-1 self-end" title={`Last edited: ${formatMessageTime(tooltipTime)}`}>Edited</span>
                     )}
 
-                    {message.reactions?.length > 0 && (
-                      <div className="flex gap-1 mt-1 self-start flex-wrap">
-                        {message.reactions.map((r, i) => (
-                          <span key={i} className={`text-sm px-1 rounded cursor-default ${r.userId === authUser._id ? 'bg-blue-200 dark:bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'}`}>{r.emoji}</span>
-                        ))}
+                    {/* Aggregated reactions row */}
+                    {Object.keys(counts).length > 0 && (
+                      <div className="mt-2">
+                        <div className="flex flex-wrap gap-2">
+                          {Object.keys(counts).map((emoji) => {
+                            const count = counts[emoji];
+                            const tooltip = buildReactionTooltip(reactionsArray, emoji);
+                            const isUserReacted = userReaction === emoji;
+                            return (
+                              <button
+                                key={emoji}
+                                onClick={() => handleReact(message._id, emoji)}
+                                className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-sm ${isUserReacted ? "bg-primary/10 border border-primary" : "bg-base-100 border border-base-200"}`}
+                                title={tooltip || `${count} reaction${count > 1 ? "s" : ""}`}
+                              >
+                                <span>{emoji}</span>
+                                <span className="text-xs opacity-70">{count}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
-
-                    <button
-                      onClick={(e) => {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const menuWidth = Math.min(window.innerWidth - 20, reactionEmojis.length * 40);
-                        const leftPos = rect.left + menuWidth > window.innerWidth ? window.innerWidth - menuWidth - 10 : rect.left;
-                        setReactionMenu({ visible: true, x: leftPos, y: rect.top + window.scrollY - 40, messageId: message._id });
-                      }}
-                      className="absolute hidden group-hover:block bottom-0 right-0 text-xs text-gray-400 bg-white/30 rounded px-1 hover:bg-white/60"
-                    >
-                      🙂
-                    </button>
                   </>
                 )}
               </div>
             </div>
           );
         })}
-
-        {/* Reaction Menu */}
-        {reactionMenu.visible && (
-          <div className="fixed z-50 flex gap-2 bg-white dark:bg-gray-800 shadow-lg border border-gray-300 dark:border-gray-700 rounded-full p-2 overflow-x-auto max-w-[90vw]" style={{ top: `${reactionMenu.y}px`, left: `${reactionMenu.x}px` }}>
-            {reactionEmojis.map((emoji) => (
-              <span key={emoji} className="cursor-pointer text-xl hover:scale-125 transition-transform flex-shrink-0" onClick={() => handleReact(reactionMenu.messageId, emoji)}>{emoji}</span>
-            ))}
-          </div>
-        )}
 
         {/* Context Menu */}
         {contextMenu.visible && (

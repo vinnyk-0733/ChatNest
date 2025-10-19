@@ -28,7 +28,7 @@ io.on("connection", (socket) => {
     io.emit("getOnlineUsers", Object.keys(userSocketMap));
   });
 
-  // ✅ Handle reaction broadcast
+  // Backwards-compatible broadcast (not required if server controllers emit)
   socket.on("sendReaction", ({ messageId, emoji, userId }) => {
     io.emit("receiveReaction", { messageId, emoji, userId });
   });
