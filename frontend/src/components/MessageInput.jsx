@@ -1,17 +1,23 @@
+// MessageInput.jsx
 import React, { useRef, useState, useEffect } from 'react';
 import { useChatStore } from '../store/useChatStore';
-import { X, Image, Video, FileText, Send, Mic, MicOff } from 'lucide-react';
+import { X, Image, Video, FileText, Send, Mic, MicOff, Radio } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { axiosInstance } from '../lib/axios';
 
 const MessageInput = () => {
   const [text, setText] = useState('');
   const [filePreview, setFilePreview] = useState(null);
   const [fileType, setFileType] = useState(null);
   const [listening, setListening] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
   const fileInputRef = useRef(null);
   const recognitionRef = useRef(null);
-  const { sendMessage } = useChatStore();
+  const { sendMessage, selectedUser } = useChatStore();
 
+  // ====== SPEECH TO TEXT (unchanged) ======
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) return;
@@ -41,6 +47,7 @@ const MessageInput = () => {
     setListening(!listening);
   };
 
+  // ====== FILE UPLOAD (unchanged) ======
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -64,6 +71,7 @@ const MessageInput = () => {
     fileInputRef.current.value = '';
   };
 
+  // ====== NORMAL TEXT SEND (unchanged) ======
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!text.trim() && !filePreview) return;
@@ -76,8 +84,56 @@ const MessageInput = () => {
     }
   };
 
+  // ====== AUDIO RECORDING FEATURE ======
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Audio = reader.result;
+          try {
+            await axiosInstance.post('/audio/upload', {
+              audioData: base64Audio,
+              receiverId: selectedUser._id,
+            });
+            toast.success('Voice message sent!');
+          } catch (err) {
+            console.error(err);
+            toast.error('Audio upload failed');
+          }
+        };
+      };
+
+      mediaRecorder.start();
+      setRecording(true);
+      toast.success('Recording started...');
+    } catch (err) {
+      toast.error('Mic access denied');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop();
+      setRecording(false);
+      toast.success('Recording stopped');
+    }
+  };
+
   return (
     <div className="p-4 w-full">
+      {/* PREVIEW SECTION (unchanged) */}
       {filePreview && (
         <div className="mb-3 relative inline-block">
           {fileType === 'image' && (
@@ -100,35 +156,67 @@ const MessageInput = () => {
         </div>
       )}
 
+      {/* INPUT AREA */}
       <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-        <textarea
-          className="w-full textarea textarea-bordered rounded-lg resize-none px-3 py-2 text-sm leading-5"
-          placeholder="Type a message..."
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={1}
-          autoComplete="off"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault(); // prevent newline
-              handleSendMessage(e); // send message
-            }
-          }}
+        {/* Textarea container with speech mic inside */}
+        <div className="relative flex-1">
+          <textarea
+            className="w-full h-10 textarea textarea-bordered rounded-lg resize-none pl-3 pr-10 py-2 text-sm leading-5"
+            placeholder="Type a message..."
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={1}
+            autoComplete="off"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSendMessage(e);
+              }
+            }}
+          />
+          {/* Speech mic inside textarea */}
+          <button
+            type="button"
+            onClick={toggleListening}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
+          >
+            {listening ? <MicOff size={20} /> : <Mic size={20} />}
+          </button>
+        </div>
+
+        {/* Attach file */}
+        <input
+          type="file"
+          accept="image/*,video/*,application/pdf"
+          ref={fileInputRef}
+          className="hidden"
+          onChange={handleFileChange}
         />
-              < input
-            type = "file"
-            accept = "image/*,video/*,application/pdf"
-            ref = { fileInputRef }
-            className = "hidden"
-            onChange = { handleFileChange }
-              />
-        <button type="button" onClick={() => fileInputRef.current?.click()} className="btn btn-circle">
+
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="btn btn-circle"
+        >
           <Image size={20} />
         </button>
-        <button type="button" onClick={toggleListening} className="btn btn-circle">
-          {listening ? <MicOff size={20} /> : <Mic size={20} />}
+
+        {/* 🎙️ Record voice message */}
+        <button
+          type="button"
+          onClick={recording ? stopRecording : startRecording}
+          className={`btn btn-circle ${recording ? 'bg-red-600 text-white' : ''}`}
+          title="Record voice message"
+        >
+          <Radio size={20} />
         </button>
-        <button type="submit" disabled={!text.trim() && !filePreview} className="btn btn-circle">
+
+        {/* Send text message */}
+        <button
+          type="submit"
+          disabled={!text.trim() && !filePreview}
+          className="btn btn-circle"
+        >
           <Send size={20} />
         </button>
       </form>

@@ -5,6 +5,7 @@ import cors from "cors"
 import {connectdb} from "./lib/db.js"
 import authRoutes from "./routes/auth.route.js"
 import messageRoutes from "./routes/message.route.js"
+import audioRoutes from "./routes/audio.route.js"
 
 import { app,server } from "./lib/socket.js"
 
@@ -28,6 +29,9 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use("/api/auth",authRoutes)
 app.use("/api/messages",messageRoutes)
+app.use("/api/audio", audioRoutes);
+app.use("/uploads", express.static("uploads"));
+
 
 
 if(process.env.NODE_ENV === "production"){

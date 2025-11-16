@@ -39,14 +39,22 @@ export const useChatStore = create((set, get) => ({
   setFilteredMessages: (msgs) => set({ filteredMessages: msgs }),
 
   sendMessage: async (messageData) => {
-    const { selectedUser } = get();
-    try {
-      await axiosInstance.post(`/messages/send/${selectedUser._id}`, messageData);
-      // optionally update messages here
-    } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to send message");
-    }
-  },
+  const { selectedUser } = get();
+  try {
+    // ✅ Capture the response from Axios
+    const res = await axiosInstance.post(`/messages/send/${selectedUser._id}`, messageData);
+
+    // ✅ Update store instantly with new message
+    set((state) => ({
+      messages: [...state.messages, res.data],
+    }));
+
+    // ✅ Return the new message so frontend (MessageInput) can use it
+    return res.data;
+  } catch (error) {
+    toast.error(error.response?.data?.message || "Failed to send message");
+  }
+},
 
   subscribeToMessages: () => {
     const { selectedUser } = get();

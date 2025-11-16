@@ -245,6 +245,16 @@ const ChatContainer = () => {
                         <a href={`${message.fileUrl}?fl_attachment=${encodeURIComponent(message.fileName)}`} download={message.fileName} className="text-sm text-info/70 hover:text-info" title="Download file">⬇️</a>
                       </div>
                     )}
+                    {message.fileType === "audio" && (
+                      <audio
+                        controls
+                        src={message.fileUrl}
+                        className="mt-2 w-48"
+                      >
+                        Your browser does not support audio playback.
+                      </audio>
+                    )}
+
                   </>
                 )}
 
